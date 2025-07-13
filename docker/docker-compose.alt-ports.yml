@@ -1,0 +1,218 @@
+# docker-compose.alt-ports.yml
+# Alternative port configuration to avoid conflicts with existing services
+# Started by ./start-alt-ports.sh with auto-generated .env
+
+services:
+  postgres:
+    container_name: airweave-db-alt
+    image: postgres:16
+    # Uses variables from .env with fallbacks
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-airweave}
+      POSTGRES_USER: ${POSTGRES_USER:-airweave}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airweave1234!}
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data_alt:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airweave}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    container_name: airweave-redis-alt
+    image: redis:7-alpine
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis_data_alt:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    container_name: airweave-backend-alt
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    # Import all variables from .env file
+    env_file:
+      - ../.env
+    ports:
+      - "8002:8001"
+    volumes:
+      - ../backend:/app
+    # These variables override any from .env file
+    # Required for container networking (services refer to container names, not localhost)
+    environment:
+      # Override any localhost references for container networking
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - TEXT2VEC_INFERENCE_URL=http://text2vec-transformers:8080
+      # Environment configuration (can be overridden in .env)
+      - ENVIRONMENT=${ENVIRONMENT:-local}
+      - LOCAL_DEVELOPMENT=${LOCAL_DEVELOPMENT:-true}
+      # Temporal configuration
+      - TEMPORAL_HOST=temporal
+      - TEMPORAL_PORT=7233
+      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 10s
+      timeout: 30s
+      retries: 10
+      start_period: 60s
+    restart: on-failure
+
+  frontend:
+    container_name: airweave-frontend-alt
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    environment:
+      - API_URL=http://localhost:8002
+      - ENABLE_AUTH=false
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8080" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: on-failure
+
+  text2vec-transformers:
+    container_name: airweave-embeddings-alt
+    image: semitechnologies/transformers-inference:sentence-transformers-all-MiniLM-L6-v2
+    ports:
+      - "9880:8080"
+    environment:
+      ENABLE_CUDA: 0
+      WORKERS_PER_NODE: 1
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: on-failure
+
+  qdrant:
+    container_name: airweave-qdrant-alt
+    image: qdrant/qdrant:latest
+    command: bash -c "apt-get update && apt-get install -y curl && ./entrypoint.sh" # we need to install curl to check health
+    ports:
+      - "6335:6333"
+    volumes:
+      - qdrant_data_alt:/qdrant/storage
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:6333/healthz" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: on-failure
+
+  temporal:
+    container_name: airweave-temporal-alt
+    image: temporalio/auto-setup:1.24.2
+    ports:
+      - "7235:7233"
+      - "8235:8233"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-airweave}
+      - POSTGRES_PWD=${POSTGRES_PASSWORD:-airweave1234!}
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    volumes:
+      - ./temporal-config:/etc/temporal/config/dynamicconfig
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "tctl", "--address", "temporal:7233", "workflow", "list" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: on-failure
+
+  temporal-ui:
+    container_name: airweave-temporal-ui-alt
+    image: temporalio/ui:2.26.2
+    ports:
+      - "8090:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      temporal:
+        condition: service_healthy
+    restart: on-failure
+
+  temporal-worker:
+    container_name: airweave-temporal-worker-alt
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    # Import all variables from .env file (same as backend)
+    env_file:
+      - ../.env
+    environment:
+      # Override any localhost references for container networking
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - TEXT2VEC_INFERENCE_URL=http://text2vec-transformers:8080
+      # Environment configuration (can be overridden in .env)
+      - ENVIRONMENT=${ENVIRONMENT:-local}
+      - LOCAL_DEVELOPMENT=${LOCAL_DEVELOPMENT:-true}
+      # Temporal configuration
+      - TEMPORAL_HOST=temporal
+      - TEMPORAL_PORT=7233
+      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_TASK_QUEUE=airweave-sync-queue
+      - TEMPORAL_ENABLED=true
+    volumes:
+      - ../backend:/app
+    entrypoint: [ "python", "-m", "airweave.platform.temporal.worker" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  postgres_data_alt:
+  redis_data_alt:
+  qdrant_data_alt:

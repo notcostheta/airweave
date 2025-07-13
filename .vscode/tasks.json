@@ -25,8 +25,40 @@
             }
         },
         {
+            "label": "start-docker-services-alt-ports",
+            "command": "docker compose -f docker/docker-compose.alt-ports.dev.yml up -d",
+            "type": "shell",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^.*$",
+                    "file": 1,
+                    "location": 2,
+                    "message": 3
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^.*Starting.*$",
+                    "endsPattern": "^.*Ready.*$"
+                }
+            }
+        },
+        {
             "label": "stop-docker-services",
             "command": "docker compose -f docker/docker-compose.dev.yml down",
+            "type": "shell",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "stop-docker-services-alt-ports",
+            "command": "docker compose -f docker/docker-compose.alt-ports.dev.yml down",
             "type": "shell",
             "presentation": {
                 "reveal": "always",

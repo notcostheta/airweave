@@ -74,3 +74,6 @@ coverage.xml
 
 # Local storage folder
 local_storage/
+
+# Local Docs
+.docs/
